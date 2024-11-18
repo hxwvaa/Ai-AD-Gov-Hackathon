@@ -1,7 +1,7 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
+import { Card, CardContent, CardHeader, CardTitle } from 'ui/card';
+import { Progress } from 'ui/progress';
+import { Separator } from 'ui/separator';
 import { 
   BarChart, 
   FileText, 
