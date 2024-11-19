@@ -8,18 +8,13 @@ import uuid
 import PyPDF2
 import docx
 from typing import List, Optional, Dict
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-from threading import Lock
-from huggingface_hub import login
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import warnings
 import gc
+from dotenv import load_dotenv 
 
-# del some_object  # Delete objects that are no longer needed
-# gc.collect()  # Trigger garbage collection to free up memory
-
-warnings.filterwarnings('ignore')  # Suppress all other warnings
-os.environ['TRANSFORMERS_VERBOSITY'] = 'error'  # Suppress transformer warnings
+warnings.filterwarnings('ignore')
 
 app = FastAPI()
 
@@ -39,24 +34,37 @@ ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt"}
 # Ensure upload directory exists
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+load_dotenv()
+# Configure Google AI Studio
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY environment variable is not set")
+
+genai.configure(api_key=GOOGLE_API_KEY)
+
+# Configure the model
+model = genai.GenerativeModel(
+    model_name="gemini-pro",
+    generation_config={
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 40,
+        "max_output_tokens": 2048,
+    },
+    safety_settings={
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
+)
+
 class DocumentResponse:
     def __init__(self, filename: str, file_id: str, upload_time: str, file_size: int):
         self.filename = filename
         self.file_id = file_id
         self.upload_time = upload_time
         self.file_size = file_size
-
-# Initialize Llama model and tokenizer (doing this globally for reuse)
-MODEL_NAME = "meta-llama/Llama-2-7b-chat-hf"  # or another variant you prefer
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    torch_dtype=torch.float16,  # Use float16 for reduced memory usage
-    device_map="auto"  # Automatically choose the best device
-)
-
-# Add a mutex for thread-safe model inference
-model_lock = Lock()
 
 class AnalysisResponse(BaseModel):
     summary: str
@@ -66,54 +74,31 @@ class AnalysisResponse(BaseModel):
     risks: List[str]
     next_steps: List[str]
 
-def generate_llama_response(prompt: str, max_length: int = 1024) -> str:
-    """Generate response using Llama model."""
-    with model_lock:  # Ensure thread-safety
-        try:
-            # Format prompt for Llama
-            formatted_prompt = f"""[INST] You are an expert government policy analyst. 
-            Analyze this document and provide a structured opinion:
+async def generate_gemini_response(prompt: str) -> str:
+    """Generate response using Gemini model."""
+    try:
+        formatted_prompt = f"""You are an expert government policy analyst. 
+        Analyze this document and provide a structured opinion:
 
-            {prompt}
+        {prompt}
 
-            Please format your response with clear section headers:
-            - Executive Summary
-            - Key Points
-            - Recommendations
-            - Risks
-            - Next Steps
-            [/INST]"""
+        Please format your response with clear section headers:
+        - Executive Summary
+        - Key Points
+        - Recommendations
+        - Risks
+        - Next Steps"""
 
-            # Tokenize input
-            inputs = tokenizer(formatted_prompt, return_tensors="pt", truncation=True, max_length=512)
-            # inputs = inputs.to(model.device)
+        response = await model.generate_content_async(formatted_prompt)
+        return response.text
 
-            # Generate response
-            outputs = model.generate(
-                inputs["input_ids"],
-                max_length=max_length,
-                num_return_sequences=1,
-                temperature=0.7,
-                top_p=0.9,
-                do_sample=True,
-                pad_token_id=tokenizer.eos_token_id
-            )
-
-            # Decode response
-            response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # Remove the prompt from the response
-            response = response.replace(formatted_prompt, "").strip()
-            
-            return response
-
-        except Exception as e:
-            raise Exception(f"Error in Llama inference: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error in Gemini inference: {str(e)}")
 
 def extract_text_from_file(file_path: str) -> str:
     """Extract text content from different file types."""
     file_ext = os.path.splitext(file_path)[1].lower()
-    
+
     try:
         if file_ext == '.pdf':
             with open(file_path, 'rb') as file:
@@ -122,31 +107,31 @@ def extract_text_from_file(file_path: str) -> str:
                 for page in pdf_reader.pages:
                     text += page.extract_text()
                 return text
-                
+
         elif file_ext in ['.doc', '.docx']:
             doc = docx.Document(file_path)
             text = '\n'.join([paragraph.text for paragraph in doc.paragraphs])
             return text
-            
+
         elif file_ext == '.txt':
             with open(file_path, 'r', encoding='utf-8') as file:
                 return file.read()
-                
+
         else:
             raise ValueError(f"Unsupported file type: {file_ext}")
-            
+
     except Exception as e:
         raise Exception(f"Error extracting text from file: {str(e)}")
 
-def analyze_text(text: str) -> AnalysisResponse:
-    """Analyze document content using Llama."""
+async def analyze_text(text: str) -> AnalysisResponse:
+    """Analyze document content using Gemini."""
     try:
-        # Generate response using Llama
-        llama_response = generate_llama_response(text)
-        
+        # Generate response using Gemini
+        gemini_response = await generate_gemini_response(text)
+
         # Parse the response
-        sections = parse_ai_response(llama_response)
-        
+        sections = parse_ai_response(gemini_response)
+
         return AnalysisResponse(
             summary=sections['summary'],
             key_points=sections['key_points'],
@@ -169,14 +154,14 @@ def parse_ai_response(content: str) -> Dict[str, any]:
         'risks': [],
         'next_steps': []
     }
-    
+
     current_section = None
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
+
         # Check for section headers
         lower_line = line.lower()
         if 'executive summary' in lower_line:
@@ -194,7 +179,7 @@ def parse_ai_response(content: str) -> Dict[str, any]:
         elif 'next steps' in lower_line:
             current_section = 'next_steps'
             continue
-            
+
         # Add content to appropriate section
         if current_section:
             if current_section == 'summary':
@@ -204,13 +189,13 @@ def parse_ai_response(content: str) -> Dict[str, any]:
                 cleaned_line = line.lstrip('•- 1234567890.)')
                 if cleaned_line:
                     sections[current_section].append(cleaned_line.strip())
-    
+
     return sections
 
 def calculate_confidence(sections: Dict) -> int:
     """Calculate confidence score based on analysis completeness."""
     score = 100
-    
+
     # Check for section completeness
     if not sections['summary'].strip():
         score -= 20
@@ -222,7 +207,7 @@ def calculate_confidence(sections: Dict) -> int:
         score -= 15
     if len(sections['next_steps']) < 3:
         score -= 15
-        
+
     return max(score, 0)
 
 class AnalysisRequest(BaseModel):
@@ -234,18 +219,17 @@ async def analyze_document(request: AnalysisRequest):
         file_path = os.path.join(UPLOAD_DIR, request.file_id)
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="File not found")
-            
+
         # Extract text from document
         text = extract_text_from_file(file_path)
-        
+
         # Analyze the text
-        analysis = analyze_text(text)
-        
+        analysis = await analyze_text(text)
+
         return analysis
     except Exception as e:
         print(f"Error during document analysis: {str(e)}")  # Log the error for debugging
         raise HTTPException(status_code=500, detail="Error during document analysis")
-
 
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
@@ -257,25 +241,25 @@ async def upload_file(file: UploadFile = File(...)):
                 status_code=400,
                 detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
             )
-        
+
         # Generate unique filename
         unique_filename = f"{uuid.uuid4()}{file_ext}"
         file_path = os.path.join(UPLOAD_DIR, unique_filename)
-        
+
         # Save file
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
+
         # Get file size
         file_size = os.path.getsize(file_path)
-        
+
         return {
             "filename": file.filename,
             "file_id": unique_filename,
             "upload_time": datetime.now().isoformat(),
             "file_size": file_size
         }
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
