@@ -1,50 +1,85 @@
-# React + TypeScript + Vite
+# Project Setup Instructions
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Step-by-Step Guide
 
-Currently, two official plugins are available:
+### 1. **Set up the `.env` file for Google API Key**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+In the **backend** folder, create a `.env` file and add your Google API key like this:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```
+GOOGLE_API_KEY=your_google_api_key_here
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+Make sure to replace `your_google_api_key_here` with your actual Google API key.
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+### 2. **Install Frontend Dependencies**
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+Open the terminal and run the following command to install the required packages:
+
 ```
+npm install
+```
+
+This will install all the dependencies needed for the frontend.
+
+### 3. **Start the Frontend**
+
+After installing the dependencies, run the frontend in development mode:
+
+```
+npm run dev
+```
+
+
+This will start the frontend server and make it available on the designated port (usually `localhost:3000` or similar).
+
+### 4. **Set up the Backend (Virtual Environment)**
+
+Open another terminal window in the **backend** folder. Create and activate the virtual environment with the following commands:
+
+For **Linux/MacOS**:
+
+```
+python3 -m venv venv  
+source venv/bin/activate
+```
+
+For **Windows - powershell**:
+
+```
+python -m venv venv  
+.\venv\Scripts\activate.ps1
+```
+
+This will set up the virtual environment for the backend.
+
+### 5. **Install Backend Dependencies**
+
+Inside the virtual environment, install the required Python dependencies:
+
+```
+pip install -r requirements.txt
+```
+
+This will install all the backend dependencies listed in the `requirements.txt` file.
+
+### 6. **Run the Backend Server**
+
+Now that the virtual environment is activated and dependencies are installed, run the backend server with:
+
+```
+uvicorn main:app --reload
+```
+
+This will start the backend server in development mode with hot reloading, making it available at `localhost:8000`.
+
+### 7. **Access the Application**
+
+Once both servers (frontend and backend) are running, you can open the application by visiting the frontend URL (typically `localhost:3000`) in your web browser.
+
+---
+
+### Additional Notes (Optional):
+
+- If you encounter errors related to missing `.env` file, ensure you have correctly created it and added the required Google API key.
+- Ensure that both backend and frontend servers are running simultaneously for proper interaction between them.
